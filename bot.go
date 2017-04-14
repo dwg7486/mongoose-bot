@@ -13,6 +13,9 @@ import (
     "encoding/json"
 
     "github.com/bwmarrin/discordgo"
+
+    "database/sql"
+    _ "github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -21,8 +24,11 @@ var (
     OWNER_ID string
 
     /* temporary constants */
-    GENERAL_CHANNEL  = "162620290487025674"
-    NSFW_CHANNEL     = "215653449298083841"
+    GENERAL_CHANNEL   = "162620290487025674"
+    DEV_CHANNEL       = "301146902777561088"
+    NSFW_CHANNEL      = "215653449298083841"
+
+    db *sql.DB
 
 )
 
@@ -60,6 +66,17 @@ func handleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 
         }
     }
+
+    if strings.HasPrefix(msg.Content, "sqlite>") {
+        splitIn := strings.SplitN(msg.Content, " ", 2)
+        if len(splitIn) == 2 {
+            sqlQuery := splitIn[1]
+            result := QueryDb(sqlQuery)
+            if len(result) > 0 {
+                fmt.Println(s.ChannelMessageSend(msg.ChannelID, result))
+            }
+        }
+    }
 }
 
 func acceptStdIn() {
@@ -87,6 +104,28 @@ func parseCommand(input string) {
     }
 }
 
+func InitSqlPrompt() {
+    var err error
+    db, err = sql.Open("sqlite3", "./db/mbot.db")
+    if err != nil {
+        panic(err)
+    }
+}
+
+func QueryDb(query string) string {
+    var result string = "No rows matched your query."
+    rows, err := db.Query(query)
+    if err != nil {
+        result = "Database query failed."
+    } else {
+        var id int
+
+        for rows.Next() {
+            err = rows.Scan(&id, &result)
+        }
+    }
+    return result
+}
 
 func main() {
     var (
@@ -122,7 +161,7 @@ func main() {
     fmt.Println("Session initialization finished")
 
     go acceptStdIn()
-
+    InitSqlPrompt()
 
     quit := make(chan os.Signal, 1)
     signal.Notify(quit, os.Interrupt, os.Kill)
