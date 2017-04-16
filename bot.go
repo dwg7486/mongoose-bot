@@ -16,6 +16,7 @@ import (
 
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
+    "regexp"
 )
 
 var (
@@ -32,41 +33,109 @@ var (
 
 )
 
-func handleOnReady(s *discordgo.Session, ready *discordgo.Ready) {
+func HandleOnReady(s *discordgo.Session, ready *discordgo.Ready) {
     s.UpdateStatus(0, "")
 }
 
-func handleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
-    if strings.HasPrefix(msg.Content, "https://instagram.com/p/") || strings.HasPrefix(msg.Content, "http://instagram.com/p/") || strings.HasPrefix(msg.Content, "https://www.instagram.com/p/") || strings.HasPrefix(msg.Content, "http://www.instagram.com/p/") {
+func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
+    isInstagramLink, _ := regexp.MatchString("https?://w{0,3}\\.?instagram\\.com/p/", msg.Content)
+    if isInstagramLink {
+        FixInstagramLink(s,msg)
+    }
 
-        resp, err := http.PostForm("http://www.igeturl.com/get.php", url.Values{"url": {msg.Content}})
-
-        if err != nil {
-            fmt.Println("Error getting converted link")
+    if strings.HasPrefix(msg.Content, "!ev") || strings.HasPrefix(msg.Content, "!event") {
+        // Only work for me
+        if msg.Author.ID != "162689822404640771" {
+            s.ChannelMessageSend(msg.ChannelID, "Sorry, I can only do that for Mongoose for now.")
             return
         }
-        defer resp.Body.Close()
+        // ----------------
+        splitIn := strings.SplitN(msg.Content, " ", 2)
 
-        body, err1 := ioutil.ReadAll(resp.Body)
+        splitCmd := strings.SplitN(splitIn[1], " ", 2)
+        cmdKey := splitCmd[0]
+        var cmdBody string = ""
+        if len(splitCmd) == 2 { cmdBody = splitCmd[1] }
 
-        if err1 != nil {
-            fmt.Println("Error reading response body")
-            return
-        }
+        switch cmdKey {
 
-        var respMap map[string]*json.RawMessage
-        json.Unmarshal([]byte(body), &respMap)
+        case "create":
+            splitBody := strings.SplitN(cmdBody, "|", 4)
+            if len(splitBody) == 4 {
+                name := splitBody[0]
+                desc := splitBody[1]
+                datetime := splitBody[2]
+                location := splitBody[3]
 
-        if string(*respMap["success"]) == "true" {
+                insertEvent := `
+                        INSERT INTO events(
+                            name,
+                            desc,
+                            datetime,
+                            location,
+                            creator
+                        ) VALUES (?, ?, ?, ?, ?)
+                        `
 
-            s.ChannelMessageSend(GENERAL_CHANNEL, "Let me fix that for you: ")
-            fixedUrl := string(*respMap["message"])
-            fixedUrl = strings.Replace(fixedUrl, "\\", "", -1)
-            s.ChannelMessageSend(GENERAL_CHANNEL, fixedUrl)
+                result, err := db.Exec(insertEvent, name, desc, datetime, location, msg.Author.ID)
+                if (err != nil) { fmt.Println(err) }
+
+                eventID, err := result.LastInsertId()
+                if (err != nil) { fmt.Println(err) }
+
+                s.ChannelMessageSend( msg.ChannelID,
+                    "**Created event:** " + name + "\n" +
+                    "**Description:** " + desc + "\n" +
+                    "**When:** " + datetime + "\n" +
+                    "**Where:** " + location + "\n" +
+                    "**Created by:** " + msg.Author.Username + "\n" +
+                    "Your event ID is " + string(eventID) + ".\n" +
+                    "Remember this ID if you wish to make changes to your event." )
+            }
+
+        case "info":
+            eventID := cmdBody
+            getEvent := `
+                SELECT name,desc,datetime,location FROM events
+                WHERE id = ?`
+
+            result := db.QueryRow(getEvent, eventID)
+
+            if result != nil {
+                var (
+                    name string
+                    desc string
+                    datetime string
+                    location string
+                )
+
+                err := result.Scan(&name, &desc, &datetime, &location)
+                if err == nil {
+                    s.ChannelMessageSend(msg.ChannelID,
+                        "__**" + name + "**__\n" +
+                        "__When:__ " + datetime + "\n" +
+                        "__Where:__ " + location + "\n" +
+                        "*" + desc + "*\n")
+                } else {
+                    s.ChannelMessageSend( msg.ChannelID,
+                        "No events matched your query. :slight_frown:")
+                }
+            }
+
+        case "help":
+            s.ChannelMessageSend( msg.ChannelID,
+                "__Discord Event Planner created by Mongoose__" + "\n```" +
+                "**Create event:** !event create name|description|time|location" + "\n" +
+                "**Edit event:**   !event edit eventID|fieldName|newValue" + "\n" +
+                "**Cancel event**  !event cancel eventID" + "\n" +
+                "**Show event**    !event info eventID  OR  !event info eventName" + "\n" +
+                "**RSVP**          !rsvp eventID choice OR  !rsvp eventName choice" + "\n" +
+                "**RSVP choices:** G[oing], M[aybe], N[ot going]" + "```" )
 
         }
     }
 
+    /*
     if strings.HasPrefix(msg.Content, "sqlite>") {
         splitIn := strings.SplitN(msg.Content, " ", 2)
         if len(splitIn) == 2 {
@@ -76,6 +145,35 @@ func handleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
                 fmt.Println(s.ChannelMessageSend(msg.ChannelID, result))
             }
         }
+    }
+    */
+}
+
+func FixInstagramLink(s *discordgo.Session, msg *discordgo.MessageCreate) {
+    resp, err := http.PostForm("http://www.igeturl.com/get.php", url.Values{"url": {msg.Content}})
+
+    if err != nil {
+        fmt.Println("Error getting converted link")
+        return
+    }
+    defer resp.Body.Close()
+
+    body, err1 := ioutil.ReadAll(resp.Body)
+
+    if err1 != nil {
+        fmt.Println("Error reading response body")
+        return
+    }
+
+    var respMap map[string]*json.RawMessage
+    json.Unmarshal([]byte(body), &respMap)
+
+    if string(*respMap["success"]) == "true" {
+        s.ChannelMessageSend(msg.ChannelID, "Let me fix that for you: ")
+        fixedUrl := string(*respMap["message"])
+        fixedUrl = strings.Replace(fixedUrl, "\\", "", -1)
+        fixedUrl = strings.Replace(fixedUrl, "\"", "", -1)
+        s.ChannelMessageSend(msg.ChannelID, fixedUrl)
     }
 }
 
@@ -104,7 +202,7 @@ func parseCommand(input string) {
     }
 }
 
-func InitSqlPrompt() {
+func InitSqlConnection() {
     var err error
     db, err = sql.Open("sqlite3", "./db/mbot.db")
     if err != nil {
@@ -153,15 +251,16 @@ func main() {
         return
     }
 
-    session.AddHandler(handleOnReady)
-    session.AddHandler(handleMessageCreate)
+    session.AddHandler(HandleOnReady)
+    session.AddHandler(HandleMessageCreate)
 
     session.Open()
+
+    InitSqlConnection()
 
     fmt.Println("Session initialization finished")
 
     go acceptStdIn()
-    InitSqlPrompt()
 
     quit := make(chan os.Signal, 1)
     signal.Notify(quit, os.Interrupt, os.Kill)
