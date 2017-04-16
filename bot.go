@@ -68,14 +68,14 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
                 location := splitBody[3]
 
                 insertEvent := `
-                        INSERT INTO events(
-                            name,
-                            desc,
-                            datetime,
-                            location,
-                            creator
-                        ) VALUES (?, ?, ?, ?, ?)
-                        `
+                    INSERT INTO events(
+                        name,
+                        desc,
+                        datetime,
+                        location,
+                        creator
+                    ) VALUES (?, ?, ?, ?, ?)
+                    `
 
                 result, err := db.Exec(insertEvent, name, desc, datetime, location, msg.Author.ID)
                 if (err != nil) { fmt.Println(err) }
@@ -97,7 +97,8 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
             eventID := cmdBody
             getEvent := `
                 SELECT name,desc,datetime,location FROM events
-                WHERE id = ?`
+                WHERE id = ?
+                `
 
             result := db.QueryRow(getEvent, eventID)
 
@@ -122,6 +123,44 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
                 }
             }
 
+        case "rsvp":
+            splitBody := strings.Split(cmdBody, " ")
+            if len(splitBody == 2) {
+                eventID := splitBody[0]
+                choice := splitBody[1]
+
+                // SELECT * FROM events WHERE id = ?
+                findEvent := `
+                    SELECT * FROM events
+                    WHERE id = ?
+                    `
+
+                err := db.QueryRow(findEvent, eventID).Scan()
+                if err != nil {
+                    s.ChannelMessageSend( msg.ChannelID,
+                        "Error: Failed to find an event with that ID." )
+                    return
+                }
+
+                makeRSVP := `
+                    INSERT INTO rsvps(
+                        eventid,
+                        personid,
+                        status
+                    ) VALUES (?, ?, ?)
+                    `
+
+                result, err := db.Exec(makeRSVP, eventID, msg.Author.ID, choice)
+                if (err != nil) {
+                    fmt.Println("Error creating RSVP")
+                    panic(err)
+                }
+
+                fmt.Println("Created RSVP ID: " + string(result.LastInsertId()))
+                s.ChannelMessageSend( msg.ChannelID,
+                    "Submitted RSVP for " + msg.Author.Username + "." )
+            }
+
         case "help":
             s.ChannelMessageSend( msg.ChannelID,
                 "__Discord Event Planner created by Mongoose__" + "\n```" +
@@ -129,7 +168,7 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
                 "**Edit event:**   !event edit eventID|fieldName|newValue" + "\n" +
                 "**Cancel event**  !event cancel eventID" + "\n" +
                 "**Show event**    !event info eventID  OR  !event info eventName" + "\n" +
-                "**RSVP**          !rsvp eventID choice OR  !rsvp eventName choice" + "\n" +
+                "**RSVP**          !event rsvp eventID choice OR  !rsvp eventName choice" + "\n" +
                 "**RSVP choices:** G[oing], M[aybe], N[ot going]" + "```" )
 
         }
@@ -139,11 +178,11 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
     if strings.HasPrefix(msg.Content, "sqlite>") {
         splitIn := strings.SplitN(msg.Content, " ", 2)
         if len(splitIn) == 2 {
-            sqlQuery := splitIn[1]
-            result := QueryDb(sqlQuery)
-            if len(result) > 0 {
-                fmt.Println(s.ChannelMessageSend(msg.ChannelID, result))
-            }
+        sqlQuery := splitIn[1]
+        result := QueryDb(sqlQuery)
+        if len(result) > 0 {
+            fmt.Println(s.ChannelMessageSend(msg.ChannelID, result))
+        }
         }
     }
     */
