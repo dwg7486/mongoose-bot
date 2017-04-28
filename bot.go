@@ -21,6 +21,7 @@ import (
     "strconv"
 )
 
+
 var (
 	session *discordgo.Session
 
@@ -30,6 +31,8 @@ var (
 	GENERAL_CHANNEL = "162620290487025674"
 	DEV_CHANNEL     = "301146902777561088"
 	NSFW_CHANNEL    = "215653449298083841"
+
+	votesMap = make(map[string][]string)
 
 	db *sql.DB
 )
@@ -264,6 +267,55 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 	       }
 	   }
 	*/
+
+	if strings.HasPrefix(msg.Content, "!vote-delete") {
+		splitCmd := strings.SplitN(msg.Content, " ", 2)
+		if len(splitCmd) == 2 {
+			msgID := splitCmd[1]
+
+			_, keyExists := votesMap[msgID]
+
+			if keyExists {
+				var hasVoted bool = false
+				for _, votedID := range votesMap[msgID] {
+					if votedID == msg.Author.ID {
+						hasVoted = true
+						break
+					}
+				}
+				if hasVoted == false {
+					votesMap[msgID] = append(votesMap[msgID],msg.Author.ID)
+					s.ChannelMessageSend(msg.ChannelID,
+							"Your vote to delete message " + msgID + " has been recorded.\n" +
+							"Vote count: " + string(len(votesMap[msgID])) + "/3")
+
+					if len(votesMap[msgID]) >= 3 {
+						s.ChannelMessageSend(msg.ChannelID,
+								"Message " + msgID + " deleted.")
+						s.ChannelMessageDelete(msg.ChannelID, msgID)
+						delete(votesMap,msgID)
+					}
+				} else {
+					s.ChannelMessageSend(msg.ChannelID,
+							"You already voted to delete that message.")
+				}
+			} else {
+				votesMap[msgID] = append(votesMap[msgID],msg.Author.ID)
+				msgToDelete, err := s.ChannelMessage(msg.ChannelID, msgID)
+
+				if err != nil {
+					s.ChannelMessageSend(msg.ChannelID, "That is not a valid message ID.")
+					return
+				}
+
+				s.ChannelMessageSend(msg.ChannelID,
+						"Your vote to delete this message has been recorded.\n" +
+						"```" + msgToDelete.Author.Username + ": " + msgToDelete.Content + "```\n" +
+						"Vote count: 1/3\n" +
+						"Type !vote-delete " + msgID + " to cast your vote.")
+			}
+		}
+	}
 }
 
 func FixInstagramLink(s *discordgo.Session, msg *discordgo.MessageCreate) {
