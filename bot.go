@@ -14,11 +14,11 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"bytes"
 	"database/sql"
 	_ "github.com/mattn/go-sqlite3"
 	"regexp"
 	"strconv"
+	"bytes"
 )
 
 var (
@@ -64,29 +64,71 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 				name := splitBody[0]
 				desc := splitBody[1]
 				location := splitBody[2]
-				eventTime := splitBody[3]
-				eventDate := splitBody[4]
+				eventDate := splitBody[3]
+				eventTime := splitBody[4]
 
-				var event *Event = CreateEvent(
+				event, err := CreateEvent(
 					name,
 					desc,
 					location,
-					eventTime,
 					eventDate,
+					eventTime,
+					msg.Author.Username,
 					msg.Author.ID )
 
-				s.ChannelMessageSend(msg.ChannelID,
-						"**Created event:** "+name+"\n"+
-						"**Description:** "+desc+"\n"+
-						"**When:** "+ event.event_time+" at "+event.event_date+"\n"+
-						"**Where:** "+location+"\n"+
-						"**Created by:** "+msg.Author.Username+"\n"+
-						"Your event ID is "+strconv.FormatInt(event.id, 10)+".\n"+
-						"Remember this ID if you wish to make changes to your event.")
+				channel, channelErr := s.UserChannelCreate(msg.Author.ID)
+				PanicIf(channelErr)
+				if err == nil {
+					s.ChannelMessageSend(channel.ID,
+						"**Created event:** " + name + "\n"+
+							"**Description:** "+ desc+ "\n"+
+							"**When:** "+ event.eventDate+ " at "+ event.eventTime+ "\n"+
+							"**Where:** "+ location+ "\n"+
+							"Your event ID is "+ strconv.FormatInt(event.id, 10)+ ".\n"+
+							"Remember this ID if you wish to make changes to your event.")
+				} else {
+					s.ChannelMessageSend(channel.ID,
+						"Event creation failed.  Please make sure you are using the command correctly.")
+				}
 			}
 
 		case "info":
-			break //temporarily disabled
+			eventSearch := cmdBody
+			if _, err := strconv.ParseInt(eventSearch, 10, 64); err != nil {
+				// eventSearch is not numeric, try searching for the entry
+				events, err := RetrieveEventByName(eventSearch)
+				if err != nil {
+					s.ChannelMessageSend(msg.ChannelID, err.Error())
+				} else {
+					if len(events) > 1 {
+						var buffer bytes.Buffer
+						for _, event := range events {
+							buffer.WriteString(
+								"`**"+event.name+"** on "+event.eventDate+" at "+event.eventTime+"` ID: "+
+									strconv.FormatInt(event.id, 10)+"\n")
+						}
+						s.ChannelMessageSend(msg.ChannelID, "Your query matched the following events:\n"+
+							buffer.String()+"Select one event by its ID with !event info <ID>.")
+
+					} else if len(events) == 1 {
+						event := events[0]
+						// TODO: implement RSVP lookup
+						s.ChannelMessageSend(msg.ChannelID, event.String())
+					} else {
+						s.ChannelMessageSend(msg.ChannelID, "No events found.  Try a different search.")
+					}
+				}
+			} else {
+				event, err := RetrieveEventByID(eventSearch)
+				if err != nil {
+					s.ChannelMessageSend(msg.ChannelID, err.Error())
+				} else {
+					s.ChannelMessageSend(msg.ChannelID, event.String())
+				}
+			}
+
+
+			/*
 			eventID := cmdBody
 			getEvent := `
                 SELECT name,desc,datetime,location FROM events
@@ -140,7 +182,7 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 					s.ChannelMessageSend(msg.ChannelID,
 						"No events matched your query. :slight_frown:")
 				}
-			}
+			}*/
 
 		case "rsvp":
 			break //temporarily disabled
@@ -231,7 +273,7 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 		case "help":
 			s.ChannelMessageSend(msg.ChannelID,
 				"__Discord Event Planner created by Mongoose__"+"\n```"+
-					"**Create event:** !event create name|description|time|location"+"\n"+
+					"**Create event:** !event create name|description|location|date|time"+"\n"+
 					"**Edit event:**   !event edit eventID|fieldName|newValue"+"\n"+
 					"**Cancel event**  !event cancel eventID"+"\n"+
 					"**Show event**    !event info eventID  OR  !event info eventName"+"\n"+
@@ -319,6 +361,8 @@ func main() {
 		fmt.Println("Owner ID is required")
 		return
 	}
+
+	OWNER_ID = *Owner
 
 	fmt.Println("Creating Discord session")
 
