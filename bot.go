@@ -14,25 +14,18 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"bytes"
 	"database/sql"
 	_ "github.com/mattn/go-sqlite3"
 	"regexp"
-    "bytes"
-    "strconv"
+	"strconv"
 )
-
 
 var (
 	session *discordgo.Session
 
-	OWNER_ID string
-
-	/* temporary constants */
-	GENERAL_CHANNEL = "162620290487025674"
-	DEV_CHANNEL     = "301146902777561088"
-	NSFW_CHANNEL    = "215653449298083841"
-
-	votesMap = make(map[string][]string)
+	OWNER_ID           string
+	GENERAL_CHANNEL_ID string = "162620290487025674"
 
 	db *sql.DB
 )
@@ -66,44 +59,34 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 		switch cmdKey {
 
 		case "create":
-			splitBody := strings.SplitN(cmdBody, "|", 4)
-			if len(splitBody) == 4 {
+			splitBody := strings.SplitN(cmdBody, "|", 5)
+			if len(splitBody) == 5 {
 				name := splitBody[0]
 				desc := splitBody[1]
-				datetime := splitBody[2]
-				location := splitBody[3]
+				location := splitBody[2]
+				eventTime := splitBody[3]
+				eventDate := splitBody[4]
 
-				insertEvent := `
-                    INSERT INTO events(
-                        name,
-                        desc,
-                        datetime,
-                        location,
-                        creator
-                    ) VALUES (?, ?, ?, ?, ?)
-                    `
-
-				result, err := db.Exec(insertEvent, name, desc, datetime, location, msg.Author.ID)
-				if err != nil {
-					fmt.Println(err)
-				}
-
-				eventID, err := result.LastInsertId()
-				if err != nil {
-					fmt.Println(err)
-				}
+				var event *Event = CreateEvent(
+					name,
+					desc,
+					location,
+					eventTime,
+					eventDate,
+					msg.Author.ID )
 
 				s.ChannelMessageSend(msg.ChannelID,
-					"**Created event:** "+name+"\n"+
+						"**Created event:** "+name+"\n"+
 						"**Description:** "+desc+"\n"+
-						"**When:** "+datetime+"\n"+
+						"**When:** "+ event.event_time+" at "+event.event_date+"\n"+
 						"**Where:** "+location+"\n"+
 						"**Created by:** "+msg.Author.Username+"\n"+
-						"Your event ID is "+string(eventID)+".\n"+
+						"Your event ID is "+strconv.FormatInt(event.id, 10)+".\n"+
 						"Remember this ID if you wish to make changes to your event.")
 			}
 
 		case "info":
+			break //temporarily disabled
 			eventID := cmdBody
 			getEvent := `
                 SELECT name,desc,datetime,location FROM events
@@ -130,19 +113,21 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 					rows, _ := db.Query(findRSVPs, eventID)
 					defer rows.Close()
 
-                    var rsvps bytes.Buffer
+					var rsvps bytes.Buffer
 					for rows.Next() {
 						var (
-							userID  string
-                            user    *discordgo.User
-							status  string
+							userID string
+							user   *discordgo.User
+							status string
 						)
 						err := rows.Scan(&userID, &status)
-                        if ( err != nil ) { return }
+						if err != nil {
+							return
+						}
 
-                        user, _ = s.User(userID)
+						user, _ = s.User(userID)
 
-                        rsvps.WriteString(user.Username + ": " + status + "\n")
+						rsvps.WriteString(user.Username + ": " + status + "\n")
 					}
 
 					s.ChannelMessageSend(msg.ChannelID,
@@ -150,7 +135,7 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 							"__When:__ "+datetime+"\n"+
 							"__Where:__ "+location+"\n"+
 							"*"+desc+"*\n\n"+
-                            rsvps.String())
+							rsvps.String())
 				} else {
 					s.ChannelMessageSend(msg.ChannelID,
 						"No events matched your query. :slight_frown:")
@@ -158,69 +143,70 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 			}
 
 		case "rsvp":
+			break //temporarily disabled
 			splitBody := strings.Split(cmdBody, "|")
 			if len(splitBody) == 2 {
-                choice := splitBody[1]
-                // Validate RSVP choice
-                switch strings.ToLower(choice) {
-                case "g","going":
-                    choice = "Going"
+				choice := splitBody[1]
+				// Validate RSVP choice
+				switch strings.ToLower(choice) {
+				case "g", "going":
+					choice = "Going"
 
-                case "m","maybe":
-                    choice = "Maybe"
+				case "m", "maybe":
+					choice = "Maybe"
 
-                case "n","not going":
-                    choice = "Not going"
+				case "n", "not going":
+					choice = "Not going"
 
-                default:
-                    s.ChannelMessageSend(msg.ChannelID,
-                        "Valid RSVP choices: G[oing], M[aybe], N[ot going]")
-                    return
-                }
+				default:
+					s.ChannelMessageSend(msg.ChannelID,
+						"Valid RSVP choices: G[oing], M[aybe], N[ot going]")
+					return
+				}
 
-                eventID := splitBody[0]
-                var existingID int = -1
-                if _, err := strconv.ParseInt(eventID,10,64); err != nil {
-                    // eventID is not numeric, try searching for the entry
-                    searchByName := `
+				eventID := splitBody[0]
+				var existingID int = -1
+				if _, err := strconv.ParseInt(eventID, 10, 64); err != nil {
+					// eventID is not numeric, try searching for the entry
+					searchByName := `
                         SELECT id from events
                         WHERE name LIKE '%?%'
                         `
 
-                    err = db.QueryRow(searchByName, eventID).Scan(&eventID)
-                } else {
-                    findEvent := `
+					err = db.QueryRow(searchByName, eventID).Scan(&eventID)
+				} else {
+					findEvent := `
                     SELECT name FROM events
                     WHERE id = ?
                     `
-                    var name string
-                    err := db.QueryRow(findEvent, eventID).Scan(&name)
-                    if err != nil {
-                        s.ChannelMessageSend(msg.ChannelID,
-                            "Failed to find an event with that ID")
-                        return
-                    }
-                }
+					var name string
+					err := db.QueryRow(findEvent, eventID).Scan(&name)
+					if err != nil {
+						s.ChannelMessageSend(msg.ChannelID,
+							"Failed to find an event with that ID")
+						return
+					}
+				}
 
-                findExistingRSVP := `
+				findExistingRSVP := `
                 SELECT id FROM rsvps
                 WHERE eventid = ? AND personid = ?
                 `
-                db.QueryRow(findExistingRSVP, eventID, msg.Author.ID).Scan(&existingID)
+				db.QueryRow(findExistingRSVP, eventID, msg.Author.ID).Scan(&existingID)
 
-                if existingID > 0 {
-                    updateExistingRSVP := `
+				if existingID > 0 {
+					updateExistingRSVP := `
                         UPDATE rsvps
                         SET status = ?
                         WHERE id = ?
                         `
-                    db.Exec(updateExistingRSVP, choice, existingID)
+					db.Exec(updateExistingRSVP, choice, existingID)
 
-                    s.ChannelMessageSend(msg.ChannelID,
-                        "Updated RSVP for " + msg.Author.Username)
-                    return
-                } else {
-                    makeRSVP := `
+					s.ChannelMessageSend(msg.ChannelID,
+						"Updated RSVP for "+msg.Author.Username)
+					return
+				} else {
+					makeRSVP := `
                     INSERT INTO rsvps(
                         eventid,
                         personid,
@@ -228,19 +214,19 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
                     ) VALUES (?, ?, ?)
                     `
 
-                    _, err := db.Exec(makeRSVP, eventID, msg.Author.ID, choice)
-                    if err != nil {
-                        fmt.Println("Error creating RSVP")
-                        panic(err)
-                    }
+					_, err := db.Exec(makeRSVP, eventID, msg.Author.ID, choice)
+					if err != nil {
+						fmt.Println("Error creating RSVP")
+						panic(err)
+					}
 
-                    s.ChannelMessageSend(msg.ChannelID,
-                        "Submitted RSVP for " + msg.Author.Username + ".")
-                }
+					s.ChannelMessageSend(msg.ChannelID,
+						"Submitted RSVP for "+msg.Author.Username+".")
+				}
 			} else {
-                s.ChannelMessageSend(msg.ChannelID,
-                    "Usage: !event rsvp eventID|choice")
-            }
+				s.ChannelMessageSend(msg.ChannelID,
+					"Usage: !event rsvp eventID|choice")
+			}
 
 		case "help":
 			s.ChannelMessageSend(msg.ChannelID,
@@ -252,68 +238,6 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 					"**RSVP**          !event rsvp eventID|choice OR  !rsvp eventName|choice"+"\n"+
 					"**RSVP choices:** G[oing], M[aybe], N[ot going]"+"```")
 
-		}
-	}
-
-	/*
-	   if strings.HasPrefix(msg.Content, "sqlite>") {
-	       splitIn := strings.SplitN(msg.Content, " ", 2)
-	       if len(splitIn) == 2 {
-	       sqlQuery := splitIn[1]
-	       result := QueryDb(sqlQuery)
-	       if len(result) > 0 {
-	           fmt.Println(s.ChannelMessageSend(msg.ChannelID, result))
-	       }
-	       }
-	   }
-	*/
-
-	if strings.HasPrefix(msg.Content, "!vote-delete") {
-		splitCmd := strings.SplitN(msg.Content, " ", 2)
-		if len(splitCmd) == 2 {
-			msgID := splitCmd[1]
-
-			_, keyExists := votesMap[msgID]
-
-			if keyExists {
-				var hasVoted bool = false
-				for _, votedID := range votesMap[msgID] {
-					if votedID == msg.Author.ID {
-						hasVoted = true
-						break
-					}
-				}
-				if hasVoted == false {
-					votesMap[msgID] = append(votesMap[msgID],msg.Author.ID)
-					s.ChannelMessageSend(msg.ChannelID,
-							"Your vote to delete message " + msgID + " has been recorded.\n" +
-							"Vote count: " + string(len(votesMap[msgID])) + "/3")
-
-					if len(votesMap[msgID]) >= 3 {
-						s.ChannelMessageSend(msg.ChannelID,
-								"Message " + msgID + " deleted.")
-						s.ChannelMessageDelete(msg.ChannelID, msgID)
-						delete(votesMap,msgID)
-					}
-				} else {
-					s.ChannelMessageSend(msg.ChannelID,
-							"You already voted to delete that message.")
-				}
-			} else {
-				votesMap[msgID] = append(votesMap[msgID],msg.Author.ID)
-				msgToDelete, err := s.ChannelMessage(msg.ChannelID, msgID)
-
-				if err != nil {
-					s.ChannelMessageSend(msg.ChannelID, "That is not a valid message ID.")
-					return
-				}
-
-				s.ChannelMessageSend(msg.ChannelID,
-						"Your vote to delete this message has been recorded.\n" +
-						"```" + msgToDelete.Author.Username + ": " + msgToDelete.Content + "```\n" +
-						"Vote count: 1/3\n" +
-						"Type !vote-delete " + msgID + " to cast your vote.")
-			}
 		}
 	}
 }
@@ -363,10 +287,10 @@ func parseCommand(input string) {
 	switch cmdKey {
 
 	case "say":
-		session.ChannelMessageSend(GENERAL_CHANNEL, cmdBody)
+		session.ChannelMessageSend(GENERAL_CHANNEL_ID, cmdBody)
 
 	case "tts":
-		session.ChannelMessageSendTTS(GENERAL_CHANNEL, cmdBody)
+		session.ChannelMessageSendTTS(GENERAL_CHANNEL_ID, cmdBody)
 
 	}
 }
@@ -377,21 +301,6 @@ func InitSqlConnection() {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func QueryDb(query string) string {
-	var result string = "No rows matched your query."
-	rows, err := db.Query(query)
-	if err != nil {
-		result = "Database query failed."
-	} else {
-		var id int
-
-		for rows.Next() {
-			err = rows.Scan(&id, &result)
-		}
-	}
-	return result
 }
 
 func main() {
@@ -425,7 +334,7 @@ func main() {
 
 	session.Open()
 
-	InitSqlConnection()
+	//InitSqlConnection()
 
 	fmt.Println("Session initialization finished")
 
