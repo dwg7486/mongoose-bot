@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	_ "github.com/mattn/go-sqlite3"
-	"fmt"
+	"strconv"
 )
 
 var (
@@ -16,10 +16,18 @@ type Event struct {
 	name        string
 	description string
 	location    string
-	eventDate   string
-	eventTime   string
+	date        string
+	time        string
 	creator     string
 	creatorID   string
+}
+
+type RSVP struct {
+	id			int64
+	eventID		string
+	username	string
+	userID		string
+	status		string
 }
 
 func CreateEvent(name, description, location, event_date, event_time, creator, creator_id string) (*Event, error) {
@@ -51,6 +59,16 @@ func CreateEvent(name, description, location, event_date, event_time, creator, c
 	return &event, err
 }
 
+func RetrieveEvent(eventSearch string) ([]*Event, error) {
+	if _, err := strconv.ParseInt(eventSearch, 10, 64); err != nil {
+		// eventSearch is not numeric, use RetrieveEventByName
+		return RetrieveEventByName(eventSearch)
+	} else {
+		event, err := RetrieveEventByID(eventSearch)
+		return []*Event{event}, err
+	}
+}
+
 func RetrieveEventByID(id string) (*Event, error) {
 	stmt, err := eventDB.Prepare(`SELECT * FROM events WHERE id=?`)
 	if err != nil {
@@ -63,7 +81,7 @@ func RetrieveEventByID(id string) (*Event, error) {
 	}
 
 	var event Event
-	err = result.Scan(&event.id, &event.name, &event.description, &event.location, &event.eventDate, &event.eventTime,
+	err = result.Scan(&event.id, &event.name, &event.description, &event.location, &event.date, &event.time,
 		&event.creator, &event.creatorID)
 	if err != nil {
 		return nil, err
@@ -88,14 +106,12 @@ func RetrieveEventByName(name string) ([]*Event, error) {
 	defer result.Close()
 	for result.Next() {
 		var event Event
-		err := result.Scan(&event.id, &event.name, &event.description, &event.location, &event.eventDate,
-			&event.eventTime, &event.creator, &event.creatorID)
+		err := result.Scan(&event.id, &event.name, &event.description, &event.location, &event.date,
+			&event.time, &event.creator, &event.creatorID)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println(event)
 		events = append(events, &event)
-		fmt.Println(events)
 	}
 	err = result.Err()
 	if err != nil {
@@ -105,30 +121,44 @@ func RetrieveEventByName(name string) ([]*Event, error) {
 	return events, nil
 }
 
-func UpdateEventDescription(id int, newDescription string) error {
-	return UpdateEventColumn(id, "description", newDescription)
+func CancelEvent(id string) error {
+	stmt, err := eventDB.Prepare(`DELETE FROM events WHERE id=?`)
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.Exec(id)
+	if err != nil {
+		return errors.New("Event not found.")
+	}
+
+	return nil
 }
 
-func UpdateEventLocation(id int, newLocation string) error {
-	return UpdateEventColumn(id, "location", newLocation)
+func UpdateEventDescription(id string, newDescription string) error {
+	return updateEventColumn(id, "description", newDescription)
 }
 
-func UpdateEventDate(id int, newDate string) error {
-	return UpdateEventColumn(id, "event_date", newDate)
+func UpdateEventLocation(id string, newLocation string) error {
+	return updateEventColumn(id, "location", newLocation)
 }
 
-func UpdateEventTime(id int, newTime string) error {
-	return UpdateEventColumn(id, "event_time", newTime)
+func UpdateEventDate(id string, newDate string) error {
+	return updateEventColumn(id, "event_date", newDate)
 }
 
-func UpdateEventColumn(id int, columnName string, newValue string) error {
-	stmt, err := eventDB.Prepare(`UPDATE events SET ?=? WHERE id=?`)
+func UpdateEventTime(id string, newTime string) error {
+	return updateEventColumn(id, "event_time", newTime)
+}
+
+func updateEventColumn(id string, columnName string, newValue string) error {
+	stmt, err := eventDB.Prepare(`UPDATE events SET `+columnName+`=? WHERE id=?`)
 	PanicIf(err)
 
 	tx, err := eventDB.Begin()
 	PanicIf(err)
 
-	_, err = tx.Stmt(stmt).Exec(columnName, newValue, id)
+	_, err = tx.Stmt(stmt).Exec(newValue, id)
 
 	if err == nil {
 		tx.Commit()
@@ -141,7 +171,37 @@ func UpdateEventColumn(id int, columnName string, newValue string) error {
 func (event *Event) String() string {
 	return "__**" + event.name + "**__\n" +
 		"**Created by:** " + event.creator + "\n" +
-		"**When:** " + event.eventDate + " at " + event.eventTime + "\n" +
+		"**When:** " + event.date + " at " + event.time + "\n" +
 		"**Where:** " + event.location + "\n" +
 		"**Description:** " + event.description + "\n"
+}
+
+func RetrieveRSVPs(eventID string) ([]*RSVP, error) {
+	event, err := RetrieveEventByID(eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	stmt, err := eventDB.Prepare(`SELECT * FROM rsvps WHERE event_id=?`)
+	PanicIf(err)
+
+	result, err := stmt.Query(event.id)
+
+	var rsvps []*RSVP
+
+	defer result.Close()
+	for result.Next() {
+		var rsvp RSVP
+		err := result.Scan(&rsvp.id, &rsvp.eventID, &rsvp.username, &rsvp.userID, &rsvp.status)
+		if err != nil {
+			return nil, err
+		}
+		rsvps = append(rsvps, &rsvp)
+	}
+	err = result.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return rsvps, nil
 }
