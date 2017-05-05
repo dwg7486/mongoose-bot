@@ -37,6 +37,8 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 	if strings.HasPrefix(msg.Content, "!ev") || strings.HasPrefix(msg.Content, "!event") {
 		go HandleCommandInput(s, msg)
 	}
+
+	RecordMessage(msg.Author.ID, msg.Content)
 }
 
 func FixInstagramLink(s *discordgo.Session, msg *discordgo.MessageCreate) {
