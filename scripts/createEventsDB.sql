@@ -8,7 +8,7 @@ CREATE TABLE events
     event_time TEXT NOT NULL,
     creator TEXT NOT NULL,
     creator_id TEXT NOT NULL
-)
+);
 
 CREATE TABLE rsvps
 (
@@ -18,4 +18,4 @@ CREATE TABLE rsvps
     user_id TEXT NOT NULL,
     status TEXT NOT NULL,
     FOREIGN KEY (event_id) REFERENCES events (id)
-)
+);

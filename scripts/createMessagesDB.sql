@@ -1,0 +1,6 @@
+CREATE TABLE messages
+(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  author_id TEXT NOT NULL,
+  message TEXT NOT NULL
+);
