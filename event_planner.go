@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	eventDB *sql.DB = OpenDB("./db/events.db")
+	eventDB *sql.DB = OpenDB("./db/events.sqlite")
 )
 
 // An Event represents a date and time when one or more people will convene at a certain location
