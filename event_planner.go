@@ -273,6 +273,9 @@ func RetrieveRSVPs(eventID string) ([]*RSVP, error) {
 func HandleCommandInput(s *discordgo.Session, msg *discordgo.MessageCreate) {
 	splitIn := strings.SplitN(msg.Content, " ", 2)
 
+	if len(splitIn) != 2 {
+		return
+	}
 	splitCmd := strings.SplitN(splitIn[1], " ", 2)
 	cmdKey := splitCmd[0]
 	var cmdBody string = ""
