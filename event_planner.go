@@ -270,7 +270,7 @@ func RetrieveRSVPs(eventID string) ([]*RSVP, error) {
 }
 
 // Parse the command input from a Discord message and execute the command if valid
-func HandleCommandInput(s *discordgo.Session, msg *discordgo.MessageCreate) {
+func HandleEventInput(s *discordgo.Session, msg *discordgo.MessageCreate) {
 	splitIn := strings.SplitN(msg.Content, " ", 2)
 
 	if len(splitIn) != 2 {

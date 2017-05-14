@@ -35,7 +35,11 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 	}
 
 	if strings.HasPrefix(msg.Content, "!ev") || strings.HasPrefix(msg.Content, "!event") {
-		go HandleCommandInput(s, msg)
+		go HandleEventInput(s, msg)
+	}
+
+	if strings.HasPrefix(msg.Content, "!remindme") {
+		go HandleReminderInput(s, msg)
 	}
 
 	RecordMessage(msg.Author.ID, msg.Content)
@@ -131,6 +135,7 @@ func main() {
 	fmt.Println("Session initialization finished")
 
 	go acceptStdIn()
+	go ProcessReminders()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, os.Kill)
