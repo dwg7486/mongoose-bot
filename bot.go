@@ -22,6 +22,8 @@ var (
 
 	OWNER_ID           string
 	GENERAL_CHANNEL_ID string = "162620290487025674"
+
+	banned map[string]bool = make(map[string]bool)
 )
 
 func HandleOnReady(s *discordgo.Session, ready *discordgo.Ready) {
@@ -36,6 +38,21 @@ func HandleMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
 
 	if strings.HasPrefix(msg.Content, "!ev") || strings.HasPrefix(msg.Content, "!event") {
 		go HandleCommandInput(s, msg)
+	}
+
+
+	if strings.Compare(msg.Content, "I am a filthy reposter.") == 0 {
+		banned[msg.Author.ID] = false
+	}
+	if isBanned, _ := banned[msg.Author.ID]; isBanned {
+		s.ChannelMessageDelete(msg.ChannelID, msg.ID)
+	}
+	if strings.HasPrefix(msg.Content, "http") {
+		isRepost, _ := DetectRepost(msg.Content)
+		if isRepost {
+			s.ChannelMessageSend(msg.ChannelID, "Repost. You have been banned from posting until you say `I am a filthy reposter.`")
+			banned[msg.Author.ID] = true
+		}
 	}
 
 	RecordMessage(msg.Author.ID, msg.Content)
